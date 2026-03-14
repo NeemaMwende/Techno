@@ -1,3 +1,8 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
@@ -6,31 +11,17 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_ollama import ChatOllama
-import os
-from dotenv import load_dotenv
-# import phoenix as px
-# from phoenix.otel import register
-# from openinference.instrumentation.langchain import LangChainInstrumentor
 from arize.otel import register
 from openinference.instrumentation.langchain import LangChainInstrumentor
 
-# tracer_provider = register(
-#   project_name="default",
-#   endpoint="http://0.0.0.0:6006",
-#   auto_instrument=True
-# )
-# LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
-
-os.environ["OPENAI_API_KEY"] = "OPENAI_KEY_REDACTED "
+os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 tracer_provider = register(
-    space_id = "ARIZE_SPACE_ID_REDACTED==",
-    api_key = "ARIZ_KEY_REDACTED",
-    project_name = "Technobrain", # name this to whatever you would like
+    space_id=os.getenv("ARIZE_SPACE_ID"),
+    api_key=os.getenv("ARIZ_KEY"),
+    project_name="Technobrain",
 )
 
 LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
-
-load_dotenv()
 
 pdf_loader = PyPDFLoader("ifmis.pdf")
 documents = pdf_loader.load()
