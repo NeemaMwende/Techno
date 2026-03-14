@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 # import phoenix as px
 # from phoenix.otel import register
 # from openinference.instrumentation.langchain import LangChainInstrumentor
+from arize.otel import register
+from openinference.instrumentation.langchain import LangChainInstrumentor
 
 # tracer_provider = register(
 #   project_name="default",
@@ -18,6 +20,15 @@ from dotenv import load_dotenv
 #   auto_instrument=True
 # )
 # LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
+
+os.environ["OPENAI_API_KEY"] = "OPENAI_KEY_REDACTED "
+tracer_provider = register(
+    space_id = "ARIZE_SPACE_ID_REDACTED==",
+    api_key = "ARIZ_KEY_REDACTED",
+    project_name = "Technobrain", # name this to whatever you would like
+)
+
+LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
 
 load_dotenv()
 
