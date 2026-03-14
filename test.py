@@ -1,6 +1,6 @@
-import phoenix as px
-from phoenix.otel import register
-from openinference.instrumentation.langchain import LangChainInstrumentor
+# import phoenix as px
+# from phoenix.otel import register
+# from openinference.instrumentation.langchain import LangChainInstrumentor
 
 import bs4
 #from langchainhub import hub
@@ -19,20 +19,17 @@ import os
 # Phoenix Monitoring Setup
 # -------------------------
 
-px.launch_app()  # Launch Phoenix UI
+#px.launch_app()  # Launch Phoenix UI
 
-tracer_provider = register(
-  project_name="default",
-  endpoint="http://0.0.0.0:6006",
-  auto_instrument=True
-)
+# tracer_provider = register(
+#   project_name="default",
+#   endpoint="http://0.0.0.0:6006",
+#   auto_instrument=True
+# )
 
-LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
+# LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
 
-from phoenix.otel import register
-
-
-os.environ["USER_AGENT"] = "rag-bot/1.0"
+# os.environ["USER_AGENT"] = "rag-bot/1.0"
 # -------------------------
 # LLM
 # -------------------------
