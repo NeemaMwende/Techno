@@ -1,13 +1,17 @@
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_ollama import ChatOllama
 import os
 from dotenv import load_dotenv
+import phoenix as px
+from phoenix.trace.langchain import LangChainIstrumentor
+
+LangChainIstrumentor().instrument()
 
 load_dotenv()
 
@@ -22,15 +26,21 @@ splitter = RecursiveCharacterTextSplitter(
 
 chunks = splitter.split_documents(documents)
 
-# Local embedding model (MiniLM)
 embedding_model = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
-vector_store = Chroma.from_documents(
-    documents=chunks,
-    embedding=embedding_model
-)
+if os.path.exists("./chroma_db"):
+    vector_store = Chroma(
+        persist_directory="./chroma_db",
+        embedding_function=embedding_model
+    )
+else:
+    vector_store = Chroma.from_documents(
+        documents=chunks,
+        embedding=embedding_model,
+        persist_directory="./chroma_db"
+    )
 
 retriever = vector_store.as_retriever(
     search_type="similarity",
@@ -49,7 +59,7 @@ Question:
 """)
 
 llm = ChatOllama(
-    model="qwen3:1.8b",
+    model="qwen3:1.7b",
     temperature=0
 )
 
@@ -66,6 +76,13 @@ chain = (
     | StrOutputParser()
 )
 
-result = chain.invoke("what is the education background of Neema")
+while True:
+    question = input("\nAsk a question (type 'exit' to quit): ")
 
-print(result)
+    if question.lower() in ["exit", "quit"]:
+        break
+
+    result = chain.invoke(question)
+
+    print("\nAnswer:")
+    print(result)
