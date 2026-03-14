@@ -84,13 +84,16 @@ chain = (
     | StrOutputParser()
 )
 
-while True:
-    question = input("\nAsk a question (type 'exit' to quit): ")
+# while True:
+#     question = input("\nAsk a question (type 'exit' to quit): ")
 
-    if question.lower() in ["exit", "quit"]:
-        break
+#     if question.lower() in ["exit", "quit"]:
+#         break
 
-    result = chain.invoke(question)
+#     result = chain.invoke(question)
 
-    print("\nAnswer:")
-    print(result)
+#     print("\nAnswer:")
+#     print(result)
+
+__all__ = ["chain"]
+
