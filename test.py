@@ -13,6 +13,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
+from langchain_community.retrievers import BM25Retriever
 
 from sentence_transformers import CrossEncoder
 from langchain_ollama import ChatOllama
@@ -84,6 +85,10 @@ text_splitter = RecursiveCharacterTextSplitter(
 )
 
 splits = text_splitter.split_documents(docs)
+
+# ranking documents based on exact term matches
+bm25_retriever = BM25Retriever.from_documents(splits)
+bm25_retriever.k = 10
 
 # -------------------------
 # Embeddings
@@ -159,19 +164,27 @@ Answer:
 
 
 def retrieve_and_rerank(question):
-    """Retrieve documents then rerank them."""
+    """Hybrid retrieval: BM25 + Vector search, then rerank."""
 
-    docs = retriever.invoke(question)
+    # Vector search
+    vector_docs = retriever.invoke(question)
 
-    if not docs:
+    # Keyword search
+    bm25_docs = bm25_retriever.invoke(question)
+
+    # Combine results
+    all_docs = vector_docs + bm25_docs
+
+    # Remove duplicates
+    unique_docs = list({doc.page_content: doc for doc in all_docs}.values())
+
+    if not unique_docs:
         return "No relevant context found."
 
-    reranked_docs = rerank_documents(question, docs, top_k=3)
+    # Rerank
+    reranked_docs = rerank_documents(question, unique_docs, top_k=3)
 
     return "\n\n".join(doc.page_content for doc in reranked_docs)
-
-
-# -------------------------
 # RAG Chain
 # -------------------------
 
