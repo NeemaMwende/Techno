@@ -19,6 +19,18 @@ from langchain_ollama import ChatOllama
 
 import os
 
+from arize.otel import register
+from openinference.instrumentation.langchain import LangChainInstrumentor
+
+os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+tracer_provider = register(
+    space_id=os.getenv("ARIZE_SPACE_ID"),
+    api_key=os.getenv("ARIZ_KEY"),
+    project_name="Technobrain",
+)
+
+LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
+
 # -------------------------
 # Phoenix Monitoring Setup
 # -------------------------
