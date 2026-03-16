@@ -3,7 +3,8 @@
 # from openinference.instrumentation.langchain import LangChainInstrumentor
 
 import bs4
-#from langchainhub import hub
+# from langchainhub import hub
+
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
@@ -13,23 +14,27 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
+from sentence_transformers import CrossEncoder
 from langchain_ollama import ChatOllama
+
 import os
+
 # -------------------------
 # Phoenix Monitoring Setup
 # -------------------------
 
-#px.launch_app()  # Launch Phoenix UI
+# px.launch_app()  # Launch Phoenix UI
 
 # tracer_provider = register(
-#   project_name="default",
-#   endpoint="http://0.0.0.0:6006",
-#   auto_instrument=True
+#     project_name="default",
+#     endpoint="http://0.0.0.0:6006",
+#     auto_instrument=True
 # )
 
 # LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
 
-# os.environ["USER_AGENT"] = "rag-bot/1.0"
+os.environ["USER_AGENT"] = "rag-bot/1.0"
+
 # -------------------------
 # LLM
 # -------------------------
@@ -82,15 +87,42 @@ vectorstore = Chroma.from_documents(
     embedding=embedding_model
 )
 
-retriever = vectorstore.as_retriever(search_kwargs={"k":3})
+# Retrieve more docs initially for reranking
+retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
+
+# -------------------------
+# Reranker
+# -------------------------
+
+reranker = CrossEncoder("BAAI/bge-reranker-base")
+
+
+def rerank_documents(question, docs, top_k=3):
+    """Rerank retrieved documents using a cross-encoder."""
+
+    if not docs:
+        return []
+
+    pairs = [[question, doc.page_content] for doc in docs]
+
+    scores = reranker.predict(pairs)
+
+    scored_docs = list(zip(docs, scores))
+
+    scored_docs.sort(key=lambda x: x[1], reverse=True)
+
+    return [doc for doc, score in scored_docs[:top_k]]
 
 
 # -------------------------
 # Prompt
 # -------------------------
 
-#prompt = hub.pull("rlm/rag-prompt")
+# prompt = hub.pull("rlm/rag-prompt")
+
 prompt = ChatPromptTemplate.from_template("""
+You are a helpful assistant.
+
 Use the following pieces of context to answer the question at the end.
 If you do not know the answer, say you do not know.
 
@@ -99,14 +131,30 @@ Context:
 
 Question:
 {question}
+
+Answer:
 """)
 
 # -------------------------
 # Helper Function
 # -------------------------
 
-def format_docs(docs):
-    return "\n\n".join(doc.page_content for doc in docs)
+# def format_docs(docs):
+#     return "\n\n".join(doc.page_content for doc in docs)
+
+
+def retrieve_and_rerank(question):
+    """Retrieve documents then rerank them."""
+
+    docs = retriever.invoke(question)
+
+    if not docs:
+        return "No relevant context found."
+
+    reranked_docs = rerank_documents(question, docs, top_k=3)
+
+    return "\n\n".join(doc.page_content for doc in reranked_docs)
+
 
 # -------------------------
 # RAG Chain
@@ -114,7 +162,7 @@ def format_docs(docs):
 
 rag_chain = (
     {
-        "context": retriever | format_docs,
+        "context": retrieve_and_rerank,
         "question": RunnablePassthrough()
     }
     | prompt
@@ -127,6 +175,7 @@ rag_chain = (
 # -------------------------
 
 while True:
+
     question = input("\nAsk a question (type 'exit' to quit): ")
 
     if question.lower() in ["exit", "quit"]:

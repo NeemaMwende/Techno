@@ -71,7 +71,7 @@ if not file_already_uploaded:
 # -------------------------
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-1.5-flash-001",
+    model="gemini-2.0-flash",
     temperature=0
 )
 
@@ -102,7 +102,7 @@ while True:
     
     # Use native Google client with file search tool
     response = client.models.generate_content(
-        model="gemini-1.5-flash-001",
+        model="gemini-2.0-flash",
         contents=question,
         config=types.GenerateContentConfig(
             tools=[
