@@ -1,6 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 
-// ─── Typing Indicator ────────────────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
+const API_BASE = "http://localhost:5000"; // change this when you deploy
+const SESSION_ID = "user-session-1"; // swap for real auth / uuid later
+
+// ─── Typing Indicator ─────────────────────────────────────────────────────────
 function TypingIndicator() {
   return (
     <div className="flex items-end gap-3 mb-4">
@@ -19,14 +23,10 @@ function TypingIndicator() {
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 function MessageBubble({ message }) {
   const isUser = message.role === "user";
-
   return (
     <div
-      className={`flex items-end gap-3 mb-4 ${
-        isUser ? "flex-row-reverse" : "flex-row"
-      }`}
+      className={`flex items-end gap-3 mb-4 ${isUser ? "flex-row-reverse" : "flex-row"}`}
     >
-      {/* Avatar */}
       {isUser ? (
         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-600 to-slate-800 flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-md">
           You
@@ -36,10 +36,8 @@ function MessageBubble({ message }) {
           AI
         </div>
       )}
-
-      {/* Bubble */}
       <div
-        className={`max-w-[75%] px-4 py-3 text-sm leading-relaxed shadow-sm ${
+        className={`max-w-[75%] px-4 py-3 text-sm leading-relaxed shadow-sm whitespace-pre-wrap ${
           isUser
             ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-2xl rounded-br-sm"
             : "bg-white border border-slate-100 text-slate-800 rounded-2xl rounded-bl-sm"
@@ -51,84 +49,103 @@ function MessageBubble({ message }) {
   );
 }
 
+// ─── Error Banner ─────────────────────────────────────────────────────────────
+function ErrorBanner({ message, onDismiss }) {
+  return (
+    <div className="mx-4 mb-3 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2 text-sm text-red-700">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        className="w-4 h-4 mt-0.5 shrink-0"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+        />
+      </svg>
+      <span className="flex-1">{message}</span>
+      <button
+        onClick={onDismiss}
+        className="text-red-400 hover:text-red-600 transition-colors"
+      >
+        x
+      </button>
+    </div>
+  );
+}
+
 // ─── Main Chatbot Component ───────────────────────────────────────────────────
 export default function Chatbot() {
   const [messages, setMessages] = useState([
     {
       id: 1,
       role: "assistant",
-      content: "Hey there! 👋 I'm your AI assistant. How can I help you today?",
+      content:
+        "Hey there! I'm your RAG-powered AI assistant. Ask me anything about the loaded documents.",
     },
   ]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isOpen, setIsOpen] = useState(true);
+  const [error, setError] = useState(null);
+
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Auto-scroll to latest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  // Focus input when chat opens
   useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
+    if (isOpen) setTimeout(() => inputRef.current?.focus(), 100);
   }, [isOpen]);
 
-  // ── Replace this function with your real API call ──────────────────────────
-  async function fetchBotReply(userMessage, conversationHistory) {
-    // TODO: Integrate your API here.
-    // `userMessage`        – the latest message string
-    // `conversationHistory` – full messages array for context
-    //
-    // Example shape for most chat APIs:
-    // const response = await fetch("/api/chat", {
-    //   method: "POST",
-    //   headers: { "Content-Type": "application/json" },
-    //   body: JSON.stringify({ message: userMessage, history: conversationHistory }),
-    // });
-    // const data = await response.json();
-    // return data.reply;
+  // ── API Call ────────────────────────────────────────────────────────────────
+  async function fetchBotReply(userMessage) {
+    const response = await fetch(`${API_BASE}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question: userMessage,
+        session_id: SESSION_ID,
+      }),
+    });
 
-    // ── Stub reply (remove once you wire up your API) ──
-    await new Promise((res) => setTimeout(res, 1500));
-    return `This is a placeholder reply to: "${userMessage}". Wire up your API in the fetchBotReply function.`;
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || `Server error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.answer;
   }
-  // ───────────────────────────────────────────────────────────────────────────
 
+  // ── Send Message ────────────────────────────────────────────────────────────
   async function handleSend() {
     const text = inputValue.trim();
     if (!text || isTyping) return;
 
-    const userMessage = {
-      id: Date.now(),
-      role: "user",
-      content: text,
-    };
+    setError(null);
 
-    const updatedMessages = [...messages, userMessage];
-    setMessages(updatedMessages);
+    const userMessage = { id: Date.now(), role: "user", content: text };
+    setMessages((prev) => [...prev, userMessage]);
     setInputValue("");
     setIsTyping(true);
 
     try {
-      const reply = await fetchBotReply(text, updatedMessages);
+      const reply = await fetchBotReply(text);
       setMessages((prev) => [
         ...prev,
         { id: Date.now() + 1, role: "assistant", content: reply },
       ]);
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now() + 1,
-          role: "assistant",
-          content: "⚠️ Something went wrong. Please try again.",
-        },
-      ]);
+    } catch (err) {
+      setError(
+        err.message || "Something went wrong. Is your Flask server running?",
+      );
     } finally {
       setIsTyping(false);
     }
@@ -141,25 +158,29 @@ export default function Chatbot() {
     }
   }
 
-  function handleClear() {
+  // ── Clear Chat ──────────────────────────────────────────────────────────────
+  async function handleClear() {
     setMessages([
       {
         id: Date.now(),
         role: "assistant",
-        content: "Chat cleared. How can I help you?",
+        content: "Chat cleared. What would you like to know?",
       },
     ]);
+    setError(null);
+    await fetch(`${API_BASE}/chat/clear/${SESSION_ID}`, {
+      method: "DELETE",
+    }).catch(() => {});
   }
 
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans">
-      {/* Chat Window */}
       {isOpen && (
         <div
           className="w-full max-w-lg bg-slate-50 rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200"
           style={{ height: "600px" }}
         >
-          {/* ── Header ─────────────────────────────────────────────────────── */}
+          {/* Header */}
           <div className="bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-4 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center text-white font-bold text-sm shadow-inner">
@@ -167,17 +188,16 @@ export default function Chatbot() {
               </div>
               <div>
                 <p className="text-white font-semibold text-sm leading-tight">
-                  AI Assistant
+                  Technobrain RAG
                 </p>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   <span className="text-violet-200 text-xs">
-                    {isTyping ? "Typing..." : "Online"}
+                    {isTyping ? "Thinking..." : "Online"}
                   </span>
                 </div>
               </div>
             </div>
-
             <div className="flex items-center gap-2">
               <button
                 onClick={handleClear}
@@ -222,18 +242,21 @@ export default function Chatbot() {
             </div>
           </div>
 
-          {/* ── Messages ───────────────────────────────────────────────────── */}
-          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-0 scroll-smooth">
+          {/* Error Banner */}
+          {error && (
+            <ErrorBanner message={error} onDismiss={() => setError(null)} />
+          )}
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto px-4 py-4 scroll-smooth">
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
-
             {isTyping && <TypingIndicator />}
-
             <div ref={messagesEndRef} />
           </div>
 
-          {/* ── Input Bar ──────────────────────────────────────────────────── */}
+          {/* Input Bar */}
           <div className="px-4 py-4 bg-white border-t border-slate-100 shrink-0">
             <div className="flex items-end gap-3 bg-slate-100 rounded-2xl px-4 py-2.5">
               <textarea
@@ -242,7 +265,7 @@ export default function Chatbot() {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Type a message… (Enter to send)"
+                placeholder="Ask anything... (Enter to send)"
                 disabled={isTyping}
                 className="flex-1 bg-transparent resize-none outline-none text-sm text-slate-800 placeholder-slate-400 max-h-32 leading-relaxed disabled:opacity-50"
                 style={{ minHeight: "24px" }}
@@ -279,7 +302,6 @@ export default function Chatbot() {
         </div>
       )}
 
-      {/* Floating Re-open Button */}
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}

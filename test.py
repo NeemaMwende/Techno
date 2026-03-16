@@ -4,6 +4,9 @@
 
 import bs4
 # from langchainhub import hub
+from flask import Flask, request, jsonify 
+from flask_cors import CORS 
+
 
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -35,6 +38,8 @@ tracer_provider = register(
 
 LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
 
+app =  Flask(__name__)
+CORS(app)
 # -------------------------
 # Phoenix Monitoring Setup
 # -------------------------
@@ -162,13 +167,17 @@ Answer:
 query_rewrite_prompt = ChatPromptTemplate.from_template("""
 You are a search assistant.
 
-Rewrite the user question into a detailed search query
-that will help retrieve relevant documents.
+Given the conversation history and the latest user question,
+rewrite the question into a standalone search query that can
+be understood without the conversation.
 
-Original Question:
+Conversation History:
+{history}
+
+User Question:
 {question}
 
-Improved Search Query:
+Standalone Search Query:
 """)
 
 # -------------------------
@@ -176,7 +185,10 @@ Improved Search Query:
 # -------------------------
 
 query_rewriter = (
-    {"question": RunnablePassthrough()}
+    {
+        "question": lambda x: x["question"],
+        "history": lambda x: x["history"]
+    }
     | query_rewrite_prompt
     | llm
     | StrOutputParser()
@@ -190,58 +202,150 @@ query_rewriter = (
 #     return "\n\n".join(doc.page_content for doc in docs)
 
 
-def retrieve_and_rerank(question):
-    """Rewrite query → hybrid retrieve → rerank."""
+def retrieve_and_rerank(inputs):
+    """
+    Retrieves documents using vector and BM25 retrievers, reranks them using a cross-encoder,
+    and formats the top-k documents with sources for RAG.
+    """
+    question = inputs["question"]
+    history = inputs["history"]
 
-    # Step 1: Rewrite the user question
-    rewritten_query = query_rewriter.invoke(question)
+    # Rewrite the question using conversation history
+    rewritten_query = query_rewriter.invoke({
+        "question": question,
+        "history": history
+    })
 
     print("\nRewritten Query:", rewritten_query)
 
-    # Step 2: Vector search
+    # Retrieve documents
     vector_docs = retriever.invoke(rewritten_query)
-
-    # Step 3: BM25 keyword search
     bm25_docs = bm25_retriever.invoke(rewritten_query)
 
-    # Step 4: Combine results
+    # Combine and deduplicate documents by content
     all_docs = vector_docs + bm25_docs
-
-    # Step 5: Remove duplicates
     unique_docs = list({doc.page_content: doc for doc in all_docs}.values())
 
-    if not unique_docs:
-        return "No relevant context found."
-
-    # Step 6: Rerank
+    # Rerank the top documents
     reranked_docs = rerank_documents(rewritten_query, unique_docs, top_k=3)
 
-    return "\n\n".join(doc.page_content for doc in reranked_docs)
+    # Format context for the LLM
+    context = "\n\n".join(doc.page_content for doc in reranked_docs)
+
+    # Format sources for transparency
+    sources = "\n".join(
+        f"Source {i+1}: {doc.metadata.get('source','unknown')}"
+        for i, doc in enumerate(reranked_docs)
+    )
+
+    return context + "\n\nSources:\n" + sources
+
 # RAG Chain
 # -------------------------
 
 rag_chain = (
     {
         "context": retrieve_and_rerank,
-        "question": RunnablePassthrough()
+        "question": lambda x: x["question"],
+        "history": lambda x: x["history"]
     }
     | prompt
     | llm
     | StrOutputParser()
 )
 
+sessions = {}
 # -------------------------
-# Interactive Chat Loop
+#  Interactive Chat Loop
+#  -------------------------
+# chat_history = []
+
+# while True:
+
+#     question = input("\nAsk a question (type 'exit' to quit): ")
+
+#     if question.lower() in ["exit", "quit"]:
+#         break
+
+#     result = rag_chain.invoke({
+#         "question": question,
+#         "history": chat_history
+#     })
+
+#     print("\nAnswer:")
+#     print(result)
+
+#     chat_history.append({
+#         "question": question,
+#         "answer": result
+#     })
+
+
 # -------------------------
+# Routes
+# -------------------------
+ 
+@app.route("/", methods=["GET"])
+def home():
+    """Root endpoint - returns API info."""
+    return jsonify({
+        "message": "Technobrain RAG API",
+        "endpoints": ["/health", "/chat", "/chat/history/<session_id>", "/chat/clear/<session_id>"]
+    })
 
-while True:
-
-    question = input("\nAsk a question (type 'exit' to quit): ")
-
-    if question.lower() in ["exit", "quit"]:
-        break
-
-    result = rag_chain.invoke(question)
-
-    print("\nAnswer:")
-    print(result)
+@app.route("/health", methods=["GET"])
+def health():
+    """Quick health check — confirms the server is up."""
+    return jsonify({"status": "ok"})
+ 
+ 
+@app.route("/chat", methods=["POST"])
+def chat():
+    """
+    POST /chat
+    Body: { "question": "...", "session_id": "..." }
+    Returns: { "answer": "...", "session_id": "..." }
+    """
+    data = request.get_json()
+ 
+    if not data or not data.get("question"):
+        return jsonify({"error": "Missing 'question' in request body"}), 400
+ 
+    question = data["question"].strip()
+    session_id = data.get("session_id", "default")
+ 
+    # Retrieve or initialise chat history for this session
+    history = sessions.get(session_id, [])
+ 
+    try:
+        answer = rag_chain.invoke({"question": question, "history": history})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+ 
+    # Persist turn in session history
+    history.append({"question": question, "answer": answer})
+    sessions[session_id] = history
+ 
+    return jsonify({"answer": answer, "session_id": session_id})
+ 
+ 
+@app.route("/chat/history/<session_id>", methods=["GET"])
+def get_history(session_id):
+    """GET /chat/history/<session_id> — returns full conversation history."""
+    history = sessions.get(session_id, [])
+    return jsonify({"session_id": session_id, "history": history})
+ 
+ 
+@app.route("/chat/clear/<session_id>", methods=["DELETE"])
+def clear_history(session_id):
+    """DELETE /chat/clear/<session_id> — wipes a session's history."""
+    sessions.pop(session_id, None)
+    return jsonify({"message": f"Session '{session_id}' cleared."})
+ 
+ 
+# -------------------------
+# Entry Point
+# -------------------------
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
+ 
