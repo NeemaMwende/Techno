@@ -22,6 +22,9 @@ import os
 from arize.otel import register
 from openinference.instrumentation.langchain import LangChainInstrumentor
 
+from dotenv import load_dotenv
+load_dotenv()
+
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 tracer_provider = register(
     space_id=os.getenv("ARIZE_SPACE_ID"),
