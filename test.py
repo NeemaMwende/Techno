@@ -156,6 +156,33 @@ Answer:
 """)
 
 # -------------------------
+# Query Rewriting Prompt
+# -------------------------
+
+query_rewrite_prompt = ChatPromptTemplate.from_template("""
+You are a search assistant.
+
+Rewrite the user question into a detailed search query
+that will help retrieve relevant documents.
+
+Original Question:
+{question}
+
+Improved Search Query:
+""")
+
+# -------------------------
+# Query Rewriter Chain
+# -------------------------
+
+query_rewriter = (
+    {"question": RunnablePassthrough()}
+    | query_rewrite_prompt
+    | llm
+    | StrOutputParser()
+)
+
+# -------------------------
 # Helper Function
 # -------------------------
 
@@ -164,25 +191,30 @@ Answer:
 
 
 def retrieve_and_rerank(question):
-    """Hybrid retrieval: BM25 + Vector search, then rerank."""
+    """Rewrite query → hybrid retrieve → rerank."""
 
-    # Vector search
-    vector_docs = retriever.invoke(question)
+    # Step 1: Rewrite the user question
+    rewritten_query = query_rewriter.invoke(question)
 
-    # Keyword search
-    bm25_docs = bm25_retriever.invoke(question)
+    print("\nRewritten Query:", rewritten_query)
 
-    # Combine results
+    # Step 2: Vector search
+    vector_docs = retriever.invoke(rewritten_query)
+
+    # Step 3: BM25 keyword search
+    bm25_docs = bm25_retriever.invoke(rewritten_query)
+
+    # Step 4: Combine results
     all_docs = vector_docs + bm25_docs
 
-    # Remove duplicates
+    # Step 5: Remove duplicates
     unique_docs = list({doc.page_content: doc for doc in all_docs}.values())
 
     if not unique_docs:
         return "No relevant context found."
 
-    # Rerank
-    reranked_docs = rerank_documents(question, unique_docs, top_k=3)
+    # Step 6: Rerank
+    reranked_docs = rerank_documents(rewritten_query, unique_docs, top_k=3)
 
     return "\n\n".join(doc.page_content for doc in reranked_docs)
 # RAG Chain
